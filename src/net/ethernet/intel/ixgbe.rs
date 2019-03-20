@@ -268,12 +268,17 @@ impl IXGBEDriver {
         let send_queue = unsafe {
             slice::from_raw_parts_mut(driver.send_queue as *mut IXGBESendDesc, IXGBE_SEND_DESC_NUM)
         };
-        let mut tdt = ixgbe[IXGBE_TDT].read();
 
-        let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
-        let send_desc = &mut send_queue[index];
+        let mut tdt = ixgbe[IXGBE_TDT].read();
         let mut data_index = 0;
-        while data_index < data.len() && (driver.first_trans || send_desc.status & 1 != 0) {
+
+        while data_index < data.len() {
+            let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
+            let send_desc = &mut send_queue[index];
+            
+            if !(driver.first_trans || send_desc.status & 1 != 0) {
+                break;
+            }
             let len = data[data_index].len();
             let target =
                 unsafe { slice::from_raw_parts_mut(driver.send_buffers[index] as *mut u8, len) };
