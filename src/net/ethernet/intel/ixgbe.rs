@@ -274,10 +274,11 @@ impl IXGBEDriver {
         let send_desc = &mut send_queue[index];
         let mut data_index = 0;
         while data_index < data.len() && (driver.first_trans || send_desc.status & 1 != 0) {
+            let len = data[data_index].len();
             let target =
-                unsafe { slice::from_raw_parts_mut(driver.send_buffers[index] as *mut u8, data.len()) };
+                unsafe { slice::from_raw_parts_mut(driver.send_buffers[index] as *mut u8, len) };
             target.copy_from_slice(data[data_index]);
-            send_desc.len = data.len() as u16;
+            send_desc.len = len as u16;
             // RS | IFCS | EOP
             send_desc.cmd = (1 << 3) | (1 << 1) | (1 << 0);
             send_desc.status = 0;
