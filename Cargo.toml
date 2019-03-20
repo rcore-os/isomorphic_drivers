@@ -1,0 +1,13 @@
+[package]
+name = "isomorphic_drivers"
+version = "0.1.0"
+authors = ["Jiajie Chen <noc@jiegec.ac.cn>"]
+edition = "2018"
+
+[dependencies]
+spin = "0.5"
+bitflags = "1.0"
+volatile = "0.2"
+log = { version = "0.4", default-features = false, optional = true }
+
+[features]
