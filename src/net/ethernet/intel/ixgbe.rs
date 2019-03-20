@@ -579,6 +579,16 @@ impl IXGBEDriver {
 
         IXGBEDriver(Arc::new(Mutex::new(driver)))
     }
+
+    pub fn is_link_up(&self) -> bool {
+        let driver = self.0.lock();
+
+        let ixgbe = unsafe {
+            slice::from_raw_parts_mut(driver.header as *mut Volatile<u32>, driver.size / 4)
+        };
+        let status = ixgbe[IXGBE_LINKS].read();
+        return status & (1 << 7) != 0
+    }
 }
 
 
