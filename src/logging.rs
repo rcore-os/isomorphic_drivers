@@ -1,3 +1,5 @@
+//! Logging macros for isomorphic_driver
+
 #[cfg(feature = "log")]
 #[macro_use]
 mod log {

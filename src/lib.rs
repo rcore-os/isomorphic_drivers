@@ -1,3 +1,5 @@
+//! A set of drivers that should be work in both OS and user space.
+
 #![feature(alloc)]
 #![feature(const_fn)]
 #![no_std]
