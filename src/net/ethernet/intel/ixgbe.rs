@@ -256,10 +256,10 @@ impl IXGBEDriver {
     }
 
     pub fn send(&self, data: &[u8]) -> bool {
-        if data.len() > IXGBE_BUFFER_SIZE {
-            return false;
-        }
+        self.msend(&[data]) > 0
+    }
 
+    pub fn msend(&self, data: &[&[u8]]) -> usize {
         let mut driver = self.0.lock();
 
         let ixgbe = unsafe {
@@ -272,30 +272,27 @@ impl IXGBEDriver {
 
         let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
         let send_desc = &mut send_queue[index];
-        if driver.first_trans || send_desc.status & 1 != 0 {
+        let mut data_index = 0;
+        while data_index < data.len() && (driver.first_trans || send_desc.status & 1 != 0) {
             let target =
                 unsafe { slice::from_raw_parts_mut(driver.send_buffers[index] as *mut u8, data.len()) };
-            target.copy_from_slice(&data);
+            target.copy_from_slice(data[data_index]);
             send_desc.len = data.len() as u16;
             // RS | IFCS | EOP
             send_desc.cmd = (1 << 3) | (1 << 1) | (1 << 0);
             send_desc.status = 0;
 
-            fence(Ordering::SeqCst);
-
             tdt = (tdt + 1) % IXGBE_SEND_DESC_NUM as u32;
-            ixgbe[IXGBE_TDT].write(tdt);
-
-            fence(Ordering::SeqCst);
 
             // round
             if tdt == 0 {
                 driver.first_trans = false;
             }
-            true
-        } else {
-            false
+            data_index += 1;
         }
+        fence(Ordering::SeqCst);
+        ixgbe[IXGBE_TDT].write(tdt);
+        data_index
     }
 
     pub fn init<T: Provider + 'static>(
