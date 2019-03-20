@@ -8,5 +8,5 @@ pub trait Provider: Sync + Send {
     fn translate_va(&self, va: usize) -> usize;
 
     // Bulk translate virtual addresses to physical addresses for performance
-    fn translate_vas(&self, va: &[usize]) -> Vec<usize>;
+    fn translate_vas(&self, vas: &[usize]) -> Vec<usize>;
 }

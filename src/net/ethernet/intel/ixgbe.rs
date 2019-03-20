@@ -172,7 +172,7 @@ const IXGBE_PFUTA_END: usize = 0x0F600 / 4;
 const IXGBE_EEC: usize = 0x10010 / 4;
 
 impl IXGBEDriver {
-    fn try_handle_interrupt(&self) -> bool {
+    pub fn try_handle_interrupt(&self) -> bool {
         let driver = self.0.lock();
 
         let ixgbe = unsafe {
@@ -200,11 +200,15 @@ impl IXGBEDriver {
         }
     }
 
-    fn get_mac(&self) -> EthernetAddress {
+    pub fn get_mac(&self) -> EthernetAddress {
         self.0.lock().mac
     }
 
-    fn recv(&self) -> Vec<Vec<u8>> {
+    pub const fn get_mtu() -> usize {
+        IXGBE_MTU
+    }
+
+    pub fn recv(&self) -> Option<Vec<u8>> {
         let driver = self.0.lock();
 
         let ixgbe = unsafe {
@@ -215,14 +219,9 @@ impl IXGBEDriver {
             slice::from_raw_parts_mut(driver.recv_queue as *mut IXGBERecvDesc, IXGBE_RECV_DESC_NUM)
         };
         let mut rdt = ixgbe[IXGBE_RDT].read();
-        let mut result = Vec::new();
-        loop {
-            let index = (rdt as usize + 1) % IXGBE_RECV_DESC_NUM;
-            let recv_desc = &mut recv_queue[index];
-            if (*recv_desc).status_error & 1 == 0 {
-                break;
-            }
-
+        let index = (rdt as usize + 1) % IXGBE_RECV_DESC_NUM;
+        let recv_desc = &mut recv_queue[index];
+        if (*recv_desc).status_error & 1 != 0 {
             let buffer = unsafe {
                 slice::from_raw_parts(
                     driver.recv_buffers[index] as *const u8,
@@ -233,15 +232,14 @@ impl IXGBEDriver {
             recv_desc.status_error = recv_desc.status_error & !1;
 
             rdt = (rdt + 1) % IXGBE_RECV_DESC_NUM as u32;
-            result.push(buffer.to_vec());
+            ixgbe[IXGBE_RDT].write(rdt);
+            Some(buffer.to_vec())
+        } else {
+            None
         }
-
-        ixgbe[IXGBE_RDT].write(rdt);
-
-        result
     }
 
-    fn can_send(&self) -> bool {
+    pub fn can_send(&self) -> bool {
         let driver = self.0.lock();
 
         let ixgbe = unsafe {
@@ -257,7 +255,7 @@ impl IXGBEDriver {
         driver.first_trans || (*send_desc).status & 1 != 0
     }
 
-    fn send(&self, data: &[u8]) -> bool {
+    pub fn send(&self, data: &[u8]) -> bool {
         if data.len() > IXGBE_BUFFER_SIZE {
             return false;
         }

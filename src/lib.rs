@@ -1,4 +1,5 @@
 #![feature(alloc)]
+#![feature(const_fn)]
 #![no_std]
 #![allow(unused_variables, dead_code)]
 
