@@ -327,9 +327,9 @@ impl IXGBEDriver {
 
         drv_info!("ixgbe: interface setup begin");
 
-        let mut send_queue_va = [0; IXGBE_SEND_QUEUE_NUM];
-        let mut send_queue_pa = [0; IXGBE_SEND_QUEUE_NUM];
-        let mut send_buffers = [[0; IXGBE_SEND_DESC_NUM]; IXGBE_SEND_QUEUE_NUM];
+        let send_queue_va = [0; IXGBE_SEND_QUEUE_NUM];
+        let send_queue_pa = [0; IXGBE_SEND_QUEUE_NUM];
+        let send_buffers = [[0; IXGBE_SEND_DESC_NUM]; IXGBE_SEND_QUEUE_NUM];
 
         let recv_queue_va = unsafe {
             alloc_zeroed(Layout::from_size_align(IXGBE_RECV_QUEUE_SIZE, provider.get_page_size()).unwrap())
@@ -337,7 +337,7 @@ impl IXGBEDriver {
         let recv_queue_pa = provider.translate_va(recv_queue_va);
         let mut recv_queue =
             unsafe { slice::from_raw_parts_mut(recv_queue_va as *mut IXGBERecvDesc, IXGBE_RECV_DESC_NUM) };
-        let mut recv_buffers = [0; IXGBE_RECV_DESC_NUM];
+        let recv_buffers = [0; IXGBE_RECV_DESC_NUM];
 
         let ixgbe = unsafe { slice::from_raw_parts_mut(header as *mut Volatile<u32>, size / 4) };
         drv_debug!(
@@ -512,9 +512,9 @@ impl IXGBEDriver {
         // The following steps should be done once per transmit queue:
         for queue in 0..IXGBE_SEND_QUEUE_NUM {
             driver.send_queue_va[queue] = unsafe {
-                alloc_zeroed(Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, provider.get_page_size()).unwrap())
+                alloc_zeroed(Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, driver.provider.get_page_size()).unwrap())
             } as usize;
-            let send_queue_pa = provider.translate_va(driver.send_queue_va[queue]);
+            let send_queue_pa = driver.provider.translate_va(driver.send_queue_va[queue]);
             let mut send_queue =
                 unsafe { slice::from_raw_parts_mut(driver.send_queue_va[queue] as *mut IXGBESendDesc, IXGBE_SEND_DESC_NUM) };
             // 1. Allocate a region of memory for the transmit descriptor list.
@@ -597,7 +597,7 @@ impl Drop for IXGBE {
         unsafe {
             for va in self.send_queue_va.iter() {
                 dealloc(
-                    self.va as *mut u8,
+                    *va as *mut u8,
                     Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, self.provider.get_page_size()).unwrap(),
                 );
             }
