@@ -18,7 +18,7 @@ const IXGBE_MTU: usize = 8000;
 const IXGBE_BUFFER_SIZE: usize = 8192;
 const IXGBE_SEND_DESC_NUM: usize = 256;
 const IXGBE_SEND_QUEUE_SIZE: usize = size_of::<IXGBESendDesc>() * IXGBE_SEND_DESC_NUM;
-const IXGBE_SEND_QUEUE_NUM: usize = 8;
+const IXGBE_SEND_QUEUE_NUM: usize = 4;
 const IXGBE_RECV_DESC_NUM: usize = 256;
 const IXGBE_RECV_QUEUE_SIZE: usize = size_of::<IXGBERecvDesc>() * IXGBE_RECV_DESC_NUM;
 
@@ -470,7 +470,8 @@ impl IXGBEDriver {
 
         // 5. Program SRRCTL associated with this queue according to the size of the buffers and the required header control.
         // Legacy descriptor, 8K buffer size
-        ixgbe[IXGBE_SRRCTL].write((ixgbe[IXGBE_SRRCTL].read() & !0xf) | (8 << 0));
+        // Enable packet drop
+        ixgbe[IXGBE_SRRCTL].write((ixgbe[IXGBE_SRRCTL].read() & !0xf) | (8 << 0) | (1 << 28));
 
         ixgbe[IXGBE_RDH].write(0); // RDH
 
