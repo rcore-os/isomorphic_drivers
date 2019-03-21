@@ -309,10 +309,9 @@ impl IXGBEDriver {
                     driver.first_trans = false;
                 }
                 data_index += 1;
+                fence(Ordering::SeqCst);
+                ixgbe[IXGBE_TDT + IXGBE_TDT_GAP * queue].write(tdt);
             }
-            fence(Ordering::SeqCst);
-            ixgbe[IXGBE_TDT + IXGBE_TDT_GAP * queue].write(tdt);
-
         }
         data_index
     }
