@@ -564,9 +564,6 @@ impl IXGBEDriver {
         // Software clears EICR by writing all ones to clear old interrupt causes.
         // clear all interrupt
         ixgbe[IXGBE_EICR].write(!0);
-        // Software enables the required interrupt causes by setting the EIMS register.
-        // unmask rx interrupt and link status change
-        ixgbe[IXGBE_EIMS].write((1 << 0) | (1 << 20));
 
         drv_debug!(
             "status after setup: {:#?}",
@@ -577,6 +574,28 @@ impl IXGBEDriver {
         drv_info!("ixgbe: interface setup done");
 
         IXGBEDriver(Arc::new(Mutex::new(driver)))
+    }
+
+    pub fn enable_irq(&self) {
+        let driver = self.0.lock();
+
+        let ixgbe = unsafe {
+            slice::from_raw_parts_mut(driver.header as *mut Volatile<u32>, driver.size / 4)
+        };
+        // Software enables the required interrupt causes by setting the EIMS register.
+        // unmask rx interrupt and link status change
+        ixgbe[IXGBE_EIMS].write((1 << 0) | (1 << 20));
+    }
+
+    pub fn disable_irq(&self) {
+        let driver = self.0.lock();
+
+        let ixgbe = unsafe {
+            slice::from_raw_parts_mut(driver.header as *mut Volatile<u32>, driver.size / 4)
+        };
+        // Software enables the required interrupt causes by setting the EIMS register.
+        // mask all interrupts
+        ixgbe[IXGBE_EIMS].write(0);
     }
 
     pub fn is_link_up(&self) -> bool {
