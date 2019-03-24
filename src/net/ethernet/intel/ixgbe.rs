@@ -3,9 +3,10 @@
 
 use super::super::structs::EthernetAddress;
 use crate::provider::Provider;
-use alloc::alloc::{Layout, alloc_zeroed, dealloc};
-use alloc::prelude::*;
+use alloc::alloc::{alloc_zeroed, dealloc, Layout};
+use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bitflags::*;
 use core::mem::size_of;
 use core::slice;
@@ -81,7 +82,6 @@ bitflags! {
         const PCIE_MASTER_ENABLE = 1 << 19;
     }
 }
-
 
 // Device registers
 const IXGBE_CTRL: usize = 0x00000 / 4;
@@ -224,7 +224,10 @@ impl IXGBEDriver {
         };
 
         let recv_queue = unsafe {
-            slice::from_raw_parts_mut(driver.recv_queue_va as *mut IXGBERecvDesc, IXGBE_RECV_DESC_NUM)
+            slice::from_raw_parts_mut(
+                driver.recv_queue_va as *mut IXGBERecvDesc,
+                IXGBE_RECV_DESC_NUM,
+            )
         };
         let mut rdt = ixgbe[IXGBE_RDT].read();
         let index = (rdt as usize + 1) % IXGBE_RECV_DESC_NUM;
@@ -256,13 +259,16 @@ impl IXGBEDriver {
 
         for queue in 0..IXGBE_SEND_QUEUE_NUM {
             let send_queue = unsafe {
-                slice::from_raw_parts_mut(driver.send_queue_va[queue] as *mut IXGBESendDesc, IXGBE_SEND_DESC_NUM)
+                slice::from_raw_parts_mut(
+                    driver.send_queue_va[queue] as *mut IXGBESendDesc,
+                    IXGBE_SEND_DESC_NUM,
+                )
             };
             let tdt = ixgbe[IXGBE_TDT + IXGBE_TDT_GAP * queue].read();
             let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
             let send_desc = &mut send_queue[index];
             if driver.first_trans || (*send_desc).status & 1 != 0 {
-                return true
+                return true;
             }
         }
         false
@@ -281,7 +287,10 @@ impl IXGBEDriver {
         let mut data_index = 0;
         for queue in 0..IXGBE_SEND_QUEUE_NUM {
             let send_queue = unsafe {
-                slice::from_raw_parts_mut(driver.send_queue_va[queue] as *mut IXGBESendDesc, IXGBE_SEND_DESC_NUM)
+                slice::from_raw_parts_mut(
+                    driver.send_queue_va[queue] as *mut IXGBESendDesc,
+                    IXGBE_SEND_DESC_NUM,
+                )
             };
 
             let mut tdt = ixgbe[IXGBE_TDT + IXGBE_TDT_GAP * queue].read();
@@ -289,13 +298,14 @@ impl IXGBEDriver {
             while data_index < data.len() {
                 let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
                 let send_desc = &mut send_queue[index];
-                
+
                 if !(driver.first_trans || send_desc.status & 1 != 0) {
                     break;
                 }
                 let len = data[data_index].len();
-                let target =
-                    unsafe { slice::from_raw_parts_mut(driver.send_buffers[queue][index] as *mut u8, len) };
+                let target = unsafe {
+                    slice::from_raw_parts_mut(driver.send_buffers[queue][index] as *mut u8, len)
+                };
                 target.copy_from_slice(data[data_index]);
                 send_desc.len = len as u16;
                 // RS | IFCS | EOP
@@ -331,11 +341,14 @@ impl IXGBEDriver {
         let send_buffers = [[0; IXGBE_SEND_DESC_NUM]; IXGBE_SEND_QUEUE_NUM];
 
         let recv_queue_va = unsafe {
-            alloc_zeroed(Layout::from_size_align(IXGBE_RECV_QUEUE_SIZE, provider.get_page_size()).unwrap())
+            alloc_zeroed(
+                Layout::from_size_align(IXGBE_RECV_QUEUE_SIZE, provider.get_page_size()).unwrap(),
+            )
         } as usize;
         let recv_queue_pa = provider.translate_va(recv_queue_va);
-        let mut recv_queue =
-            unsafe { slice::from_raw_parts_mut(recv_queue_va as *mut IXGBERecvDesc, IXGBE_RECV_DESC_NUM) };
+        let mut recv_queue = unsafe {
+            slice::from_raw_parts_mut(recv_queue_va as *mut IXGBERecvDesc, IXGBE_RECV_DESC_NUM)
+        };
         let recv_buffers = [0; IXGBE_RECV_DESC_NUM];
 
         let ixgbe = unsafe { slice::from_raw_parts_mut(header as *mut Volatile<u32>, size / 4) };
@@ -453,7 +466,10 @@ impl IXGBEDriver {
         // 2. Receive buffers of appropriate size should be allocated and pointers to these buffers should be stored in the descriptor ring.
         for i in 0..IXGBE_RECV_DESC_NUM {
             let buffer_page = unsafe {
-                alloc_zeroed(Layout::from_size_align(IXGBE_BUFFER_SIZE, driver.provider.get_page_size()).unwrap())
+                alloc_zeroed(
+                    Layout::from_size_align(IXGBE_BUFFER_SIZE, driver.provider.get_page_size())
+                        .unwrap(),
+                )
             } as usize;
             let buffer_page_pa = driver.provider.translate_va(buffer_page);
             recv_queue[i].addr = buffer_page_pa as u64;
@@ -504,23 +520,34 @@ impl IXGBEDriver {
 
         // Program the HLREG0 register according to the required MAC behavior.
         // TXCRCEN | RXCRCSTRP | JUMBOEN | TXPADEN | RXLNGTHERREN
-        ixgbe[IXGBE_HLREG0]
-            .write(ixgbe[IXGBE_HLREG0].read() | (1 << 0) | (1 << 1) | (1 << 2) | (1 << 10) | (1 << 27));
+        ixgbe[IXGBE_HLREG0].write(
+            ixgbe[IXGBE_HLREG0].read() | (1 << 0) | (1 << 1) | (1 << 2) | (1 << 10) | (1 << 27),
+        );
         // Set max MTU
         ixgbe[IXGBE_MAXFRS].write((IXGBE_MTU as u32) << 16);
 
         // The following steps should be done once per transmit queue:
         for queue in 0..IXGBE_SEND_QUEUE_NUM {
             driver.send_queue_va[queue] = unsafe {
-                alloc_zeroed(Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, driver.provider.get_page_size()).unwrap())
+                alloc_zeroed(
+                    Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, driver.provider.get_page_size())
+                        .unwrap(),
+                )
             } as usize;
             let send_queue_pa = driver.provider.translate_va(driver.send_queue_va[queue]);
-            let mut send_queue =
-                unsafe { slice::from_raw_parts_mut(driver.send_queue_va[queue] as *mut IXGBESendDesc, IXGBE_SEND_DESC_NUM) };
+            let mut send_queue = unsafe {
+                slice::from_raw_parts_mut(
+                    driver.send_queue_va[queue] as *mut IXGBESendDesc,
+                    IXGBE_SEND_DESC_NUM,
+                )
+            };
             // 1. Allocate a region of memory for the transmit descriptor list.
             for i in 0..IXGBE_SEND_DESC_NUM {
                 let buffer_page = unsafe {
-                        alloc_zeroed(Layout::from_size_align(IXGBE_BUFFER_SIZE, driver.provider.get_page_size()).unwrap())
+                    alloc_zeroed(
+                        Layout::from_size_align(IXGBE_BUFFER_SIZE, driver.provider.get_page_size())
+                            .unwrap(),
+                    )
                 } as usize;
                 let buffer_page_pa = driver.provider.translate_va(buffer_page);
                 send_queue[i].addr = buffer_page_pa as u64;
@@ -542,7 +569,8 @@ impl IXGBEDriver {
             }
 
             // 7. Enable the queue using TXDCTL.ENABLE. Poll the TXDCTL register until the Enable bit is set.
-            ixgbe[IXGBE_TXDCTL + IXGBE_TXDCTL_GAP * queue].write(ixgbe[IXGBE_TXDCTL + IXGBE_TXDCTL_GAP * queue].read() | 1 << 25);
+            ixgbe[IXGBE_TXDCTL + IXGBE_TXDCTL_GAP * queue]
+                .write(ixgbe[IXGBE_TXDCTL + IXGBE_TXDCTL_GAP * queue].read() | 1 << 25);
             while ixgbe[IXGBE_TXDCTL + IXGBE_TXDCTL_GAP * queue].read() & (1 << 25) == 0 {}
         }
 
@@ -569,7 +597,6 @@ impl IXGBEDriver {
             "status after setup: {:#?}",
             IXGBEStatus::from_bits_truncate(ixgbe[IXGBE_STATUS].read())
         );
-
 
         drv_info!("ixgbe: interface setup done");
 
@@ -605,10 +632,9 @@ impl IXGBEDriver {
             slice::from_raw_parts_mut(driver.header as *mut Volatile<u32>, driver.size / 4)
         };
         let status = ixgbe[IXGBE_LINKS].read();
-        return status & (1 << 7) != 0
+        return status & (1 << 7) != 0;
     }
 }
-
 
 impl Drop for IXGBE {
     fn drop(&mut self) {
@@ -627,25 +653,29 @@ impl Drop for IXGBE {
             for va in self.send_queue_va.iter() {
                 dealloc(
                     *va as *mut u8,
-                    Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, self.provider.get_page_size()).unwrap(),
+                    Layout::from_size_align(IXGBE_SEND_QUEUE_SIZE, self.provider.get_page_size())
+                        .unwrap(),
                 );
             }
             dealloc(
                 self.recv_queue_va as *mut u8,
-                Layout::from_size_align(IXGBE_RECV_QUEUE_SIZE, self.provider.get_page_size()).unwrap(),
+                Layout::from_size_align(IXGBE_RECV_QUEUE_SIZE, self.provider.get_page_size())
+                    .unwrap(),
             );
             for buffer in self.send_buffers.iter() {
                 for send_buffer in buffer.iter() {
                     dealloc(
                         *send_buffer as *mut u8,
-                        Layout::from_size_align(IXGBE_BUFFER_SIZE, self.provider.get_page_size()).unwrap(),
+                        Layout::from_size_align(IXGBE_BUFFER_SIZE, self.provider.get_page_size())
+                            .unwrap(),
                     );
                 }
             }
             for recv_buffer in self.recv_buffers.iter() {
                 dealloc(
                     *recv_buffer as *mut u8,
-                    Layout::from_size_align(IXGBE_BUFFER_SIZE, self.provider.get_page_size()).unwrap(),
+                    Layout::from_size_align(IXGBE_BUFFER_SIZE, self.provider.get_page_size())
+                        .unwrap(),
                 );
             }
         }
