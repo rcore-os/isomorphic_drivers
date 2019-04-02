@@ -37,7 +37,7 @@ pub struct IXGBE {
     send_buffers: [[usize; IXGBE_SEND_DESC_NUM]; IXGBE_SEND_QUEUE_NUM],
     recv_queue_va: usize,
     recv_buffers: [usize; IXGBE_RECV_DESC_NUM],
-    first_trans: bool,
+    first_trans: [bool; IXGBE_SEND_QUEUE_NUM],
 }
 
 #[derive(Clone)]
@@ -267,7 +267,7 @@ impl IXGBEDriver {
             let tdt = ixgbe[IXGBE_TDT + IXGBE_TDT_GAP * queue].read();
             let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
             let send_desc = &mut send_queue[index];
-            if driver.first_trans || (*send_desc).status & 1 != 0 {
+            if driver.first_trans[queue] || (*send_desc).status & 1 != 0 {
                 return true;
             }
         }
@@ -299,7 +299,7 @@ impl IXGBEDriver {
                 let index = (tdt as usize) % IXGBE_SEND_DESC_NUM;
                 let send_desc = &mut send_queue[index];
 
-                if !(driver.first_trans || send_desc.status & 1 != 0) {
+                if !(driver.first_trans[queue] || send_desc.status & 1 != 0) {
                     break;
                 }
                 let len = data[data_index].len();
@@ -316,7 +316,7 @@ impl IXGBEDriver {
 
                 // round
                 if tdt == 0 {
-                    driver.first_trans = false;
+                    driver.first_trans[queue] = false;
                 }
                 data_index += 1;
                 fence(Ordering::SeqCst);
@@ -425,7 +425,7 @@ impl IXGBEDriver {
             send_buffers,
             recv_queue_va: recv_queue_va,
             recv_buffers,
-            first_trans: true,
+            first_trans: [true; IXGBE_SEND_QUEUE_NUM],
         };
 
         // Unicast Table Array (PFUTA).
