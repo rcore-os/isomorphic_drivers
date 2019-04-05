@@ -304,16 +304,16 @@ impl<P: Provider> AHCI<P> {
             c.set_bit(0, false);
         });
 
-        let (rfis_va, rfis_pa) = P::alloc_dma(PAGE_SIZE);
-        let (cmd_list_va, cmd_list_pa) = P::alloc_dma(PAGE_SIZE);
-        let (cmd_table_va, cmd_table_pa) = P::alloc_dma(PAGE_SIZE);
-        let (data_va, data_pa) = P::alloc_dma(PAGE_SIZE);
+        let (rfis_va, rfis_pa) = P::alloc_dma(P::PAGE_SIZE);
+        let (cmd_list_va, cmd_list_pa) = P::alloc_dma(P::PAGE_SIZE);
+        let (cmd_table_va, cmd_table_pa) = P::alloc_dma(P::PAGE_SIZE);
+        let (data_va, data_pa) = P::alloc_dma(P::PAGE_SIZE);
 
         let received_fis = unsafe { &mut *(rfis_va as *mut AHCIReceivedFIS) };
         let cmd_list = unsafe {
             slice::from_raw_parts_mut(
                 cmd_list_va as *mut AHCICommandHeader,
-                PAGE_SIZE / size_of::<AHCICommandHeader>(),
+                P::PAGE_SIZE / size_of::<AHCICommandHeader>(),
             )
         };
         let cmd_table = unsafe { &mut *(cmd_table_va as *mut AHCICommandTable) };
@@ -427,8 +427,16 @@ impl<P: Provider> AHCI<P> {
     }
 }
 
+impl<P: Provider> Drop for AHCI<P> {
+    fn drop(&mut self) {
+        P::dealloc_dma(self.received_fis as *mut _ as usize, P::PAGE_SIZE);
+        P::dealloc_dma(self.cmd_list.as_ptr() as usize, P::PAGE_SIZE);
+        P::dealloc_dma(self.cmd_table as *mut _ as usize, P::PAGE_SIZE);
+        P::dealloc_dma(self.data.as_ptr() as usize, P::PAGE_SIZE);
+    }
+}
+
 pub const BLOCK_SIZE: usize = 512;
-const PAGE_SIZE: usize = 0x1000;
 
 fn from_ata_string(data: &[u8]) -> String {
     let mut swapped_data = Vec::new();
