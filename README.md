@@ -1,5 +1,7 @@
-isomorphic_drivers
+Isomorphic Drivers
 ===========================
+
+[![Build Status](https://travis-ci.org/rcore-os/isomorphic_drivers.svg?branch=master)](https://travis-ci.org/rcore-os/isomorphic_drivers)
 
 A set of device drivers that should:
 
