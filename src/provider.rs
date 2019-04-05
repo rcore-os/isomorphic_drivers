@@ -1,13 +1,10 @@
-use alloc::vec::Vec;
-
 /// External functions that drivers must use
-pub trait Provider: Sync + Send {
-    /// Get page size
-    fn get_page_size(&self) -> usize;
+pub trait Provider {
+    /// Allocate consequent physical memory for DMA.
+    /// Return (`virtual address`, `physical address`).
+    /// The address is page aligned.
+    fn alloc_dma(size: usize) -> (usize, usize);
 
-    /// Translate virtual address to physical address
-    fn translate_va(&self, va: usize) -> usize;
-
-    /// Bulk translate virtual addresses to physical addresses for performance
-    fn translate_vas(&self, vas: &[usize]) -> Vec<usize>;
+    /// Deallocate DMA
+    fn dealloc_dma(vaddr: usize, size: usize);
 }
