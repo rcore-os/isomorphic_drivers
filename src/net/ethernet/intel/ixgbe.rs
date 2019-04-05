@@ -199,10 +199,10 @@ impl<P: Provider> IXGBE<P> {
                 let status = ixgbe[IXGBE_LINKS].read();
                 if status.get_bit(7) {
                     // link up
-                    drv_info!("ixgbe: interface link up");
+                    info!("ixgbe: interface link up");
                 } else {
                     // link down
-                    drv_info!("ixgbe: interface link down");
+                    info!("ixgbe: interface link down");
                 }
             }
             true
@@ -303,7 +303,7 @@ impl<P: Provider> IXGBE<P> {
         assert_eq!(size_of::<IXGBESendDesc>(), 16);
         assert_eq!(size_of::<IXGBERecvDesc>(), 16);
 
-        drv_info!("ixgbe: interface setup begin");
+        info!("ixgbe: interface setup begin");
 
         let (recv_queue_va, recv_queue_pa) = P::alloc_dma(IXGBE_RECV_QUEUE_SIZE);
         let mut recv_queue = unsafe {
@@ -312,7 +312,7 @@ impl<P: Provider> IXGBE<P> {
         let mut recv_buffers = [0; IXGBE_RECV_DESC_NUM];
 
         let ixgbe = unsafe { slice::from_raw_parts_mut(header as *mut Volatile<u32>, size / 4) };
-        drv_debug!(
+        debug!(
             "status before setup: {:#?}",
             IXGBEStatus::from_bits_truncate(ixgbe[IXGBE_STATUS].read())
         );
@@ -378,7 +378,7 @@ impl<P: Provider> IXGBE<P> {
             rah as u8,
             (rah >> 8) as u8,
         ];
-        drv_debug!("mac {:x?}", mac);
+        debug!("mac {:x?}", mac);
 
         // Unicast Table Array (PFUTA).
         for i in IXGBE_PFUTA..IXGBE_PFUTA_END {
@@ -558,12 +558,12 @@ impl<P: Provider> IXGBE<P> {
         // clear all interrupt
         ixgbe[IXGBE_EICR].write(!0);
 
-        drv_debug!(
+        debug!(
             "status after setup: {:#?}",
             IXGBEStatus::from_bits_truncate(ixgbe[IXGBE_STATUS].read())
         );
 
-        drv_info!("ixgbe: interface setup done");
+        info!("ixgbe: interface setup done");
 
         IXGBE {
             provider: PhantomData,
@@ -624,6 +624,6 @@ impl<P: Provider> Drop for IXGBE<P> {
             P::dealloc_dma(recv_buffer, IXGBE_BUFFER_SIZE);
         }
 
-        drv_info!("ixgbe: interface detached");
+        info!("ixgbe: interface detached");
     }
 }

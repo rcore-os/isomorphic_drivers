@@ -297,7 +297,7 @@ impl<P: Provider> AHCI<P> {
 
         let port = unsafe { &mut *ghc.port_ptr(port_num) };
 
-        drv_debug!("AHCI probing port {}", port_num);
+        debug!("AHCI probing port {}", port_num);
         // Disable Port First
         port.command.update(|c| {
             c.set_bit(4, false);
@@ -341,7 +341,7 @@ impl<P: Provider> AHCI<P> {
 
         let stat = port.sata_status.read();
         if stat == 0 {
-            drv_warn!("port is not connected to external drive?");
+            warn!("port is not connected to external drive?");
         }
 
         let fis = &mut cmd_table.cfis;
@@ -356,7 +356,7 @@ impl<P: Provider> AHCI<P> {
         port.issue_command(0);
         port.spin_on_slot(0);
 
-        drv_debug!(
+        debug!(
             "Found ATA Device serial {} firmware {} model {} sectors 24bit={} 48bit={}",
             from_ata_string(&identify_data.serial).trim_end(),
             from_ata_string(&identify_data.firmware).trim_end(),
