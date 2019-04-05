@@ -9,6 +9,9 @@ mod log {
     macro_rules! drv_info {
         ($($arg:expr),*) => (info!($($arg),*));
     }
+    macro_rules! drv_warn {
+        ($($arg:expr),*) => (warn!($($arg),*));
+    }
 }
 
 #[cfg(not(feature = "log"))]
@@ -18,6 +21,9 @@ mod log {
         ($($arg:expr),*) => { $( let _ = $arg; )* };
     }
     macro_rules! drv_info {
+        ($($arg:expr),*) => { $( let _ = $arg; )*};
+    }
+    macro_rules! drv_warn {
         ($($arg:expr),*) => { $( let _ = $arg; )*};
     }
 }

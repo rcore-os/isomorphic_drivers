@@ -13,5 +13,6 @@ extern crate log;
 #[macro_use]
 mod logging;
 
+pub mod block;
 pub mod net;
 pub mod provider;
