@@ -18,6 +18,7 @@ Implemented drivers
 ## Network drivers
 
 - ixgbe: Intel 10Gb Network Adapter 82599
+- E1000: Intel E1000
 
 ## Block device drivers
 
