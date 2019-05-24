@@ -278,105 +278,106 @@ struct ATAIdentifyPacket {
 }
 
 impl<P: Provider> AHCI<P> {
-    pub fn new(header: usize, size: usize) -> Self {
+    pub fn new(header: usize, size: usize) -> Option<Self> {
         let ghc = unsafe { &mut *(header as *mut AHCIGenericHostControl) };
 
         ghc.enable();
 
-        let port_num = (0..ghc.num_ports())
-            .find(|&i| {
-                if !ghc.has_port(i) {
-                    return false;
-                }
-                let sata_status = unsafe { &mut *ghc.port_ptr(i) }.sata_status.read();
-                let ipm_active = sata_status.get_bits(8..12) == 1;
-                let det_present = sata_status.get_bits(0..4) == 3;
-                ipm_active && det_present
+        if let Some(port_num) = (0..ghc.num_ports()).find(|&i| {
+            if !ghc.has_port(i) {
+                return false;
+            }
+            let sata_status = unsafe { &mut *ghc.port_ptr(i) }.sata_status.read();
+            let ipm_active = sata_status.get_bits(8..12) == 1;
+            let det_present = sata_status.get_bits(0..4) == 3;
+            ipm_active && det_present
+        }) {
+            let port = unsafe { &mut *ghc.port_ptr(port_num) };
+
+            debug!("AHCI probing port {}", port_num);
+            // Disable Port First
+            port.command.update(|c| {
+                c.set_bit(4, false);
+                c.set_bit(0, false);
+            });
+
+            let (rfis_va, rfis_pa) = P::alloc_dma(P::PAGE_SIZE);
+            let (cmd_list_va, cmd_list_pa) = P::alloc_dma(P::PAGE_SIZE);
+            let (cmd_table_va, cmd_table_pa) = P::alloc_dma(P::PAGE_SIZE);
+            let (data_va, data_pa) = P::alloc_dma(P::PAGE_SIZE);
+
+            let received_fis = unsafe { &mut *(rfis_va as *mut AHCIReceivedFIS) };
+            let cmd_list = unsafe {
+                slice::from_raw_parts_mut(
+                    cmd_list_va as *mut AHCICommandHeader,
+                    P::PAGE_SIZE / size_of::<AHCICommandHeader>(),
+                )
+            };
+            let cmd_table = unsafe { &mut *(cmd_table_va as *mut AHCICommandTable) };
+            let identify_data = unsafe { &*(data_va as *mut ATAIdentifyPacket) };
+
+            cmd_table.prdt[0].data_base_address = data_pa as u64;
+            cmd_table.prdt[0].byte_count_i = (BLOCK_SIZE - 1) as u32;
+
+            cmd_list[0].command_table_base_address = cmd_table_pa as u64;
+            cmd_list[0].prdt_length = 1;
+            cmd_list[0].prd_byte_count = 0;
+
+            port.command_list_base_address.write(cmd_list_pa as u64);
+            port.fis_base_address.write(rfis_pa as u64);
+
+            // clear status and errors
+            port.command_issue.write(0);
+            port.sata_active.write(0);
+            port.sata_error.write(0);
+
+            // enable port
+            port.command.update(|c| {
+                *c |= 1 << 0 | 1 << 1 | 1 << 2 | 1 << 4 | 1 << 28;
+            });
+
+            let stat = port.sata_status.read();
+            if stat == 0 {
+                warn!("port is not connected to external drive?");
+                return None;
+            }
+
+            let fis = &mut cmd_table.cfis;
+            // Register FIS from HBA to device
+            fis.fis_type = FIS_REG_H2D;
+            fis.cflags = 1 << 7;
+
+            // 7.15 IDENTIFY DEVICE - ECh, PIO Data-In
+            fis.command = CMD_IDENTIFY_DEVICE;
+            fis.sector_count = 1;
+
+            port.issue_command(0);
+            port.spin_on_slot(0);
+
+            debug!(
+                "Found ATA Device serial {} firmware {} model {} sectors 24bit={} 48bit={}",
+                from_ata_string(&identify_data.serial).trim_end(),
+                from_ata_string(&identify_data.firmware).trim_end(),
+                from_ata_string(&identify_data.model).trim_end(),
+                identify_data.lba_sectors,
+                identify_data.lba48_sectors
+            );
+
+            let data = unsafe { slice::from_raw_parts_mut(data_va as *mut u8, BLOCK_SIZE) };
+
+            Some(AHCI {
+                header,
+                size,
+                provider: PhantomData,
+                ghc,
+                received_fis,
+                cmd_list,
+                cmd_table,
+                data,
+                port,
             })
-            .expect("AHCI can't find a port");
-
-        let port = unsafe { &mut *ghc.port_ptr(port_num) };
-
-        debug!("AHCI probing port {}", port_num);
-        // Disable Port First
-        port.command.update(|c| {
-            c.set_bit(4, false);
-            c.set_bit(0, false);
-        });
-
-        let (rfis_va, rfis_pa) = P::alloc_dma(P::PAGE_SIZE);
-        let (cmd_list_va, cmd_list_pa) = P::alloc_dma(P::PAGE_SIZE);
-        let (cmd_table_va, cmd_table_pa) = P::alloc_dma(P::PAGE_SIZE);
-        let (data_va, data_pa) = P::alloc_dma(P::PAGE_SIZE);
-
-        let received_fis = unsafe { &mut *(rfis_va as *mut AHCIReceivedFIS) };
-        let cmd_list = unsafe {
-            slice::from_raw_parts_mut(
-                cmd_list_va as *mut AHCICommandHeader,
-                P::PAGE_SIZE / size_of::<AHCICommandHeader>(),
-            )
-        };
-        let cmd_table = unsafe { &mut *(cmd_table_va as *mut AHCICommandTable) };
-        let identify_data = unsafe { &*(data_va as *mut ATAIdentifyPacket) };
-
-        cmd_table.prdt[0].data_base_address = data_pa as u64;
-        cmd_table.prdt[0].byte_count_i = (BLOCK_SIZE - 1) as u32;
-
-        cmd_list[0].command_table_base_address = cmd_table_pa as u64;
-        cmd_list[0].prdt_length = 1;
-        cmd_list[0].prd_byte_count = 0;
-
-        port.command_list_base_address.write(cmd_list_pa as u64);
-        port.fis_base_address.write(rfis_pa as u64);
-
-        // clear status and errors
-        port.command_issue.write(0);
-        port.sata_active.write(0);
-        port.sata_error.write(0);
-
-        // enable port
-        port.command.update(|c| {
-            *c |= 1 << 0 | 1 << 1 | 1 << 2 | 1 << 4 | 1 << 28;
-        });
-
-        let stat = port.sata_status.read();
-        if stat == 0 {
-            warn!("port is not connected to external drive?");
-        }
-
-        let fis = &mut cmd_table.cfis;
-        // Register FIS from HBA to device
-        fis.fis_type = FIS_REG_H2D;
-        fis.cflags = 1 << 7;
-
-        // 7.15 IDENTIFY DEVICE - ECh, PIO Data-In
-        fis.command = CMD_IDENTIFY_DEVICE;
-        fis.sector_count = 1;
-
-        port.issue_command(0);
-        port.spin_on_slot(0);
-
-        debug!(
-            "Found ATA Device serial {} firmware {} model {} sectors 24bit={} 48bit={}",
-            from_ata_string(&identify_data.serial).trim_end(),
-            from_ata_string(&identify_data.firmware).trim_end(),
-            from_ata_string(&identify_data.model).trim_end(),
-            identify_data.lba_sectors,
-            identify_data.lba48_sectors
-        );
-
-        let data = unsafe { slice::from_raw_parts_mut(data_va as *mut u8, BLOCK_SIZE) };
-
-        AHCI {
-            header,
-            size,
-            provider: PhantomData,
-            ghc,
-            received_fis,
-            cmd_list,
-            cmd_table,
-            data,
-            port,
+        } else {
+            None
         }
     }
 
