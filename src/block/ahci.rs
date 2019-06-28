@@ -83,10 +83,37 @@ bitflags! {
 }
 
 impl AHCIGenericHostControl {
-    fn enable(&mut self) {
+    fn enable_ahci(&mut self) {
+        // ref: Linux ahci_enable_ahci
         self.global_host_control.update(|v| {
-            v.set_bit(13, true);
+            // GHC.AE
+            v.set_bit(31, true);
         });
+        for i in 0..1000 {
+            if self.global_host_control.read().get_bit(31) {
+                break;
+            }
+            self.global_host_control.update(|v| {
+                // GHC.AE
+                v.set_bit(31, true);
+            });
+        }
+    }
+    fn enable(&mut self) {
+        // ref: Linux ahci_reset_controller
+        self.enable_ahci();
+
+        let ctl = self.global_host_control.read();
+        if !ctl.get_bit(0) {
+            self.global_host_control.update(|v| {
+                // GHC.HR
+                v.set_bit(0, true);
+            });
+            // flush
+            self.global_host_control.read();
+            while self.global_host_control.read().get_bit(0) {}
+            self.enable_ahci();
+        }
     }
     fn num_ports(&self) -> usize {
         self.capability.read().bits().get_bits(0..5) as usize + 1
@@ -159,8 +186,8 @@ struct AHCIReceivedFIS {
 /// https://wiki.osdev.org/images/e/e8/Command_list.jpg
 #[repr(C)]
 struct AHCICommandHeader {
-    ///
-    flags: CommandHeaderFlags,
+    /// PMP R C B R P W A CFL
+    flags: u16,
     /// Physical region descriptor table length in entries
     prdt_length: u16,
     /// Physical region descriptor byte count transferred
@@ -296,10 +323,20 @@ impl<P: Provider> AHCI<P> {
 
             debug!("AHCI probing port {}", port_num);
             // Disable Port First
+            // ref: Linux ahci_stop_engine
             port.command.update(|c| {
-                c.set_bit(4, false);
+                // ST
                 c.set_bit(0, false);
             });
+            // LIST_ON
+            while port.command.read() | (1 << 15) == 1 {}
+            // ref: Linux ahci_stop_fis_rx
+            port.command.update(|c| {
+                // FRE
+                c.set_bit(4, false);
+            });
+            // FIS_ON
+            while port.command.read() | (1 << 14) == 1 {}
 
             let (rfis_va, rfis_pa) = P::alloc_dma(P::PAGE_SIZE);
             let (cmd_list_va, cmd_list_pa) = P::alloc_dma(P::PAGE_SIZE);
@@ -322,19 +359,48 @@ impl<P: Provider> AHCI<P> {
             cmd_list[0].command_table_base_address = cmd_table_pa as u64;
             cmd_list[0].prdt_length = 1;
             cmd_list[0].prd_byte_count = 0;
+            // cfl=4
+            cmd_list[0].flags = 4;
 
             port.command_list_base_address.write(cmd_list_pa as u64);
             port.fis_base_address.write(rfis_pa as u64);
 
-            // clear status and errors
-            port.command_issue.write(0);
-            port.sata_active.write(0);
-            port.sata_error.write(0);
+            // clear errors
+            port.sata_error.write(0xffffffff);
 
+            // ref: Linux ahci_power_up
+            // spin up device
+            port.command.update(|c| {
+                // SUD
+                *c |= 1 << 1;
+            });
+            // power up
+            port.command.update(|c| {
+                // ICC
+                *c &= !(0xf << 28);
+                *c |= 1 << 28;
+            });
+
+            // ref: Linux ahci_start_fis_rx
+            // enable fre
+            port.command.update(|c| {
+                // FRE
+                *c |= 1 << 4;
+            });
+            // flush
+            port.command.read();
+
+            // ref: Linux ahci_start_engine
             // enable port
             port.command.update(|c| {
-                *c |= 1 << 0 | 1 << 1 | 1 << 2 | 1 << 4 | 1 << 28;
+                // ST
+                *c |= 1 << 0;
             });
+            // flush
+            port.command.read();
+
+            // wait for ST
+            while port.command.read() | (1 << 0) == 0 {}
 
             let stat = port.sata_status.read();
             if stat == 0 {
@@ -382,7 +448,8 @@ impl<P: Provider> AHCI<P> {
     }
 
     pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> usize {
-        self.cmd_list[0].flags = CommandHeaderFlags::empty();
+        // cfl=4
+        self.cmd_list[0].flags = 4;
 
         let fis = &mut self.cmd_table.cfis;
         // Register FIS from HBA to device
@@ -404,7 +471,8 @@ impl<P: Provider> AHCI<P> {
     }
 
     pub fn write_block(&mut self, block_id: usize, buf: &[u8]) -> usize {
-        self.cmd_list[0].flags = CommandHeaderFlags::WRITE; // device write
+        // cfl=4
+        self.cmd_list[0].flags = 4 | CommandHeaderFlags::WRITE.bits(); // device write
 
         let len = buf.len().min(BLOCK_SIZE);
         self.data[0..len].clone_from_slice(&buf[..len]);
