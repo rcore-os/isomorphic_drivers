@@ -229,7 +229,7 @@ impl<P: Provider> E1000<P> {
             )
         };
 
-        recv_desc.status.set_bit(1, false);
+        recv_desc.status.set_bit(0, false);
 
         rdt = index;
         self.registers[E1000_RDT].write(rdt as u32);
