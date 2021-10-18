@@ -6,10 +6,11 @@ use crate::provider::Provider;
 use alloc::vec::Vec;
 use bit_field::*;
 use bitflags::*;
+use core::hint::spin_loop;
 use core::marker::PhantomData;
-use core::mem::{size_of, uninitialized};
+use core::mem::{size_of, MaybeUninit};
 use core::slice;
-use core::sync::atomic::{fence, spin_loop_hint, Ordering};
+use core::sync::atomic::{fence, Ordering};
 use volatile::Volatile;
 
 // On linux, use ip link set <dev> mtu <MTU - 18>
@@ -353,12 +354,12 @@ impl<P: Provider> IXGBE<P> {
 
         // Auto-Read Done
         while !ixgbe[IXGBE_EEC].read().get_bit(9) {
-            spin_loop_hint();
+            spin_loop();
         }
 
         // DMA Init Done
         while !ixgbe[IXGBE_RDRXCTL].read().get_bit(3) {
-            spin_loop_hint();
+            spin_loop();
         }
 
         // BAM, Accept Broadcast packets
@@ -449,7 +450,7 @@ impl<P: Provider> IXGBE<P> {
 
         // 9. Poll the RXDCTL register until the Enable bit is set. The tail should not be bumped before this bit was read as 1b.
         while !ixgbe[IXGBE_RXDCTL].read().get_bit(25) {
-            spin_loop_hint(); // wait for it
+            spin_loop(); // wait for it
         }
 
         // 10. Bump the tail pointer (RDT) to enable descriptors fetching by setting it to the ring length minus one.
@@ -463,7 +464,7 @@ impl<P: Provider> IXGBE<P> {
         });
         // Wait for the data paths to be emptied by HW. Poll the SECRXSTAT.SECRX_RDY bit until it is asserted by HW.
         while !ixgbe[IXGBE_SECRXSTAT].read().get_bit(0) {
-            spin_loop_hint(); // poll
+            spin_loop(); // poll
         }
 
         // Set RXCTRL.RXEN
@@ -496,7 +497,7 @@ impl<P: Provider> IXGBE<P> {
 
         // The following steps should be done once per transmit queue:
         let mut send_queues: [&'static mut [IXGBESendDesc]; IXGBE_SEND_QUEUE_NUM] =
-            unsafe { uninitialized() };
+            unsafe { MaybeUninit::uninit().assume_init() };
         let mut send_buffers = [[0; IXGBE_SEND_DESC_NUM]; IXGBE_SEND_QUEUE_NUM];
         for queue in 0..IXGBE_SEND_QUEUE_NUM {
             let (send_queue_va, send_queue_pa) = P::alloc_dma(IXGBE_SEND_QUEUE_SIZE);
@@ -535,7 +536,7 @@ impl<P: Provider> IXGBE<P> {
                 .read()
                 .get_bit(25)
             {
-                spin_loop_hint();
+                spin_loop();
             }
         }
 
@@ -609,7 +610,7 @@ impl<P: Provider> Drop for IXGBE<P> {
         // reset: LRST | RST
         ixgbe[IXGBE_CTRL].write(1 << 3 | 1 << 26);
         while ixgbe[IXGBE_CTRL].read() & (1 << 3 | 1 << 26) != 0 {
-            spin_loop_hint();
+            spin_loop();
         }
         for send_queue in self.send_queues.iter() {
             P::dealloc_dma(send_queue.as_ptr() as usize, IXGBE_SEND_QUEUE_SIZE);

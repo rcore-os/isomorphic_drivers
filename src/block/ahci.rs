@@ -4,10 +4,10 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::hint::spin_loop;
 use core::marker::PhantomData;
 use core::mem::size_of;
 use core::slice;
-use core::sync::atomic::spin_loop_hint;
 
 use bit_field::*;
 use bitflags::*;
@@ -153,7 +153,7 @@ impl AHCIPort {
             if !ci.get_bit(slot) {
                 break;
             }
-            spin_loop_hint();
+            spin_loop();
         }
     }
     fn issue_command(&mut self, slot: usize) {
